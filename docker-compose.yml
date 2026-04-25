@@ -6,11 +6,11 @@ services:
     container_name: attendance_db_container
     restart: always
     environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: password
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: adminpassword
       POSTGRES_DB: attendance_db
     ports:
-      - "5432:5432"
+      - "5444:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
