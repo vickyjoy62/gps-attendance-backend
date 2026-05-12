@@ -1,70 +1,42 @@
 import os
-import jwt
-from passlib.context import CryptContext
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
-from math import radians, cos, sin, asin, sqrt
-from dotenv import load_dotenv
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+from fastapi.security import OAuth2PasswordBearer
 
-# Load variables from .env
-load_dotenv()
-
-# --- SECURITY CONFIG ---
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "jkuat_secret_key_2026")
+# 1. SECURITY CONFIGURATIONS
+# In a real JKUAT production environment, you'd put these in an .env file
+SECRET_KEY = "JKUAT_GPS_ATTENDANCE_SECRET_KEY_2026" 
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
+# 2. PASSWORD HASHING SETUP
+# This tells Passlib to use the 'bcrypt' algorithm for security
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# --- AUTHENTICATION UTILS ---
+# 3. OAUTH2 SCHEME
+# This tells FastAPI where to look for the token (the /login endpoint)
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
-def hash_password(password: str):
-    return pwd_context.hash(password)
+# 4. HELPER FUNCTIONS
 
-def verify_password(plain_password: str, hashed_password: str):
+def verify_password(plain_password, hashed_password):
+    """Checks if the typed password matches the one in the database."""
     return pwd_context.verify(plain_password, hashed_password)
 
+def hash_password(password):
+    """Converts a plain password into a secure hash before saving."""
+    return pwd_context.hash(password)
+
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    """Generates the JWT 'Digital ID' for the student."""
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
-
-def verify_token(token: str):
-    """
-    Decodes the JWT token to extract the student's email.
-    Used by main.py to identify the logged-in user.
-    """
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        email: str = payload.get("sub")
-        if email is None:
-            return None
-        return email
-    except Exception:
-        return None
-
-# --- GPS & GEOFENCING UTILS ---
-
-def calculate_distance(lat1: float, lon1: float, lat2: float, lon2: float):
-    """
-    Calculate the great circle distance between two points 
-    on the earth (specified in decimal degrees) using Haversine formula.
-    Returns distance in METERS.
-    """
-    # convert decimal degrees to radians 
-    lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
-
-    # haversine formula 
-    dlon = lon2 - lon1 
-    dlat = lat2 - lat1 
-    a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
-    c = 2 * asin(sqrt(a)) 
-    r = 6371 # Radius of earth in kilometers. Use 3956 for miles
-    
-    distance_km = c * r
-    return distance_km * 1000  # Convert to meters

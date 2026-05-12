@@ -1,56 +1,56 @@
 from pydantic import BaseModel, EmailStr
-from datetime import datetime
-from typing import Optional, List
 from uuid import UUID
+from typing import Optional
 
-# --- USER SCHEMAS (Phase 3) ---
+# --- 1. USER SCHEMAS ---
 
-class UserBase(BaseModel):
+# This is what the frontend sends during registration
+class UserCreate(BaseModel):
     email: EmailStr
+    password: str
     first_name: str
     last_name: str
     student_registration_number: str
 
-class UserCreate(UserBase):
-    password: str
-
-class UserResponse(UserBase):
-    id: UUID  # Fixed: Use UUID to match the database type
+# This is the "Safe" version of a User we send back to React
+# Notice: No password field here for security!
+class UserOut(BaseModel):
+    id: UUID
+    email: EmailStr
+    first_name: str
+    last_name: str
+    student_registration_number: str
     is_active: bool
 
     class Config:
         from_attributes = True
 
 
-# --- AUTHENTICATION SCHEMAS ---
+# --- 2. AUTHENTICATION SCHEMAS ---
 
+# This is what the backend sends back after a successful login
 class Token(BaseModel):
     access_token: str
     token_type: str
 
+# This represents the data inside the JWT token
 class TokenData(BaseModel):
     email: Optional[str] = None
 
 
-# --- ATTENDANCE SCHEMAS (Phase 4 & 5) ---
+# --- 3. ATTENDANCE SCHEMAS (For the next step) ---
 
 class AttendanceCreate(BaseModel):
-    """
-    Data required from the mobile app to verify location.
-    """
     latitude: float
     longitude: float
+    course_code: str
 
-class AttendanceResponse(BaseModel):
-    """
-    Data returned after attendance is successfully marked.
-    """
-    id: UUID
-    user_id: UUID
-    latitude: float
-    longitude: float
+class AttendanceOut(BaseModel):
+    id: int
+    student_id: UUID
+    course_code: str
+    timestamp: str
     status: str
-    timestamp: datetime
 
     class Config:
         from_attributes = True

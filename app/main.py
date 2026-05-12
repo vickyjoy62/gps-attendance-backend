@@ -1,125 +1,85 @@
 from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
-from . import models, schemas, database, utils
-from typing import List
-from uuid import UUID
+from fastapi.security import OAuth2PasswordRequestForm
+from datetime import timedelta
 
-# 1. Initialize Database Tables
-models.Base.metadata.create_all(bind=database.engine)
+# Import your local files
+from . import models, schemas, utils, database
+from .database import engine, get_db
 
-app = FastAPI(
-    title="JKUAT GPS Attendance System",
-    description="Secure GPS-based attendance with JWT Authentication and Haversine Geofencing",
-    version="1.0.0"
+# Create the database tables
+models.Base.metadata.create_all(bind=engine)
+
+app = FastAPI(title="JKUAT GPS Attendance System")
+
+# --- 1. CORS CONFIGURATION ---
+# This allows your React app (localhost:3000) to talk to this API
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# 2. Security Configuration
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
-
-# 3. Geofence Configuration (Juja Campus Sample Hall)
-TARGET_LAT = -1.0912
-TARGET_LON = 37.0117
-ALLOWED_RADIUS_METERS = 50.0 
-
-# 4. Database Session Dependency
-def get_db():
-    db = database.SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-# Helper to get current user from token
-def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    email = utils.verify_token(token) # We'll ensure this is in your utils.py
-    if email is None:
+# --- 2. AUTHENTICATION / LOGIN ---
+@app.post("/login")
+def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    # OAuth2PasswordRequestForm uses 'username' for the email field
+    user = db.query(models.User).filter(models.User.email == form_data.username).first()
+    
+    if not user or not utils.verify_password(form_data.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
+            detail="Invalid email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    user = db.query(models.User).filter(models.User.email == email).first()
-    if user is None:
-        raise HTTPException(status_code=404, detail="User not found")
-    return user
 
-@app.get("/")
-def health_check():
-    return {"status": "online", "message": "JKUAT Attendance Backend is Running"}
+    # Create the JWT access token
+    access_token_expires = timedelta(minutes=utils.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = utils.create_access_token(
+        data={"sub": user.email}, expires_delta=access_token_expires
+    )
+    
+    return {"access_token": access_token, "token_type": "bearer"}
 
-# --- PHASE 3: AUTHENTICATION ---
-
-@app.post("/register", response_model=schemas.UserResponse)
+# --- 3. USER REGISTRATION ---
+@app.post("/register", response_model=schemas.UserOut)
 def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
+    # Check if user already exists
     db_user = db.query(models.User).filter(models.User.email == user.email).first()
     if db_user:
         raise HTTPException(status_code=400, detail="Email already registered")
     
+    # Check if registration number is unique
+    db_reg = db.query(models.User).filter(
+        models.User.student_registration_number == user.student_registration_number
+    ).first()
+    if db_reg:
+        raise HTTPException(status_code=400, detail="Registration number already in use")
+
+    # Hash the password and save
+    hashed_password = utils.hash_password(user.password)
     new_user = models.User(
         email=user.email,
         first_name=user.first_name,
         last_name=user.last_name,
         student_registration_number=user.student_registration_number,
-        hashed_password=utils.hash_password(user.password)
+        hashed_password=hashed_password
     )
+    
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
     return new_user
 
-@app.post("/login", response_model=schemas.Token)
-def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    user = db.query(models.User).filter(models.User.email == form_data.username).first()
-    if not user or not utils.verify_password(form_data.password, user.hashed_password):
-        raise HTTPException(status_code=401, detail="Incorrect email or password")
-    
-    access_token = utils.create_access_token(data={"sub": user.email})
-    return {"access_token": access_token, "token_type": "bearer"}
+# --- 4. ATTENDANCE (PLACEHOLDER) ---
+@app.post("/mark-attendance")
+def mark_attendance(token: str = Depends(utils.oauth2_scheme), db: Session = Depends(get_db)):
+    # This is where we will verify GPS coordinates in the next step
+    return {"message": "Endpoint reached successfully"}
 
-# --- PHASE 4 & 5: SECURE GPS GEOFENCING ---
-
-@app.post("/mark-attendance", response_model=schemas.AttendanceResponse)
-def mark_attendance(
-    attendance_data: schemas.AttendanceCreate, 
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user)
-):
-    # 1. Calculate distance
-    distance = utils.calculate_distance(
-        attendance_data.latitude, 
-        attendance_data.longitude, 
-        TARGET_LAT, 
-        TARGET_LON
-    )
-    
-    # 2. Geofence Check
-    if distance > ALLOWED_RADIUS_METERS:
-        raise HTTPException(
-            status_code=403, 
-            detail=f"Access Denied: You are {round(distance, 2)}m away from the classroom."
-        )
-    
-    # 3. Save Record tied to the logged-in student
-    new_record = models.Attendance(
-        user_id=current_user.id,
-        latitude=attendance_data.latitude,
-        longitude=attendance_data.longitude,
-        status="Present"
-    )
-    db.add(new_record)
-    db.commit()
-    db.refresh(new_record)
-    
-    # Add distance to response so user knows how accurate it was
-    new_record.message = "Attendance marked successfully!"
-    new_record.distance = round(distance, 2)
-    
-    return new_record
-
-# --- PHASE 6: REPORTING ---
-
-@app.get("/attendance-logs", response_model=List[schemas.AttendanceResponse])
-def get_attendance_logs(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    """Only authenticated users can see logs."""
-    return db.query(models.Attendance).all()
+@app.get("/")
+def read_root():
+    return {"message": "JKUAT GPS Attendance API is running"}
