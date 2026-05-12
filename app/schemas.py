@@ -1,56 +1,55 @@
 from pydantic import BaseModel, EmailStr
-from uuid import UUID
 from typing import Optional
+from datetime import datetime
 
-# --- 1. USER SCHEMAS ---
+# --- USER SCHEMAS (Requirement 7 & 15) ---
 
-# This is what the frontend sends during registration
 class UserCreate(BaseModel):
+    """Schema for creating a new student account."""
     email: EmailStr
+    first_name: str
+    last_name: str
+    student_registration_number: str
     password: str
+
+class UserOut(BaseModel):
+    """Schema for returning student data (excludes password for security)."""
+    id: int
+    email: EmailStr
     first_name: str
     last_name: str
     student_registration_number: str
 
-# This is the "Safe" version of a User we send back to React
-# Notice: No password field here for security!
-class UserOut(BaseModel):
-    id: UUID
-    email: EmailStr
-    first_name: str
-    last_name: str
-    student_registration_number: str
-    is_active: bool
+    class Config:
+        # Allows compatibility with SQLAlchemy models
+        from_attributes = True
+
+# --- ATTENDANCE SCHEMAS (Requirement 3 & 18) ---
+
+class AttendanceCreate(BaseModel):
+    """Schema for sending GPS coordinates from the phone/laptop."""
+    course_code: str
+    latitude: float
+    longitude: float
+
+class AttendanceOut(BaseModel):
+    """Schema for the 'Immediate Reports' view."""
+    id: int
+    student_id: int
+    course_code: str
+    latitude: float
+    longitude: float
+    status: str
+    timestamp: datetime
 
     class Config:
         from_attributes = True
 
+# --- TOKEN SCHEMAS (Security) ---
 
-# --- 2. AUTHENTICATION SCHEMAS ---
-
-# This is what the backend sends back after a successful login
 class Token(BaseModel):
     access_token: str
     token_type: str
 
-# This represents the data inside the JWT token
 class TokenData(BaseModel):
     email: Optional[str] = None
-
-
-# --- 3. ATTENDANCE SCHEMAS (For the next step) ---
-
-class AttendanceCreate(BaseModel):
-    latitude: float
-    longitude: float
-    course_code: str
-
-class AttendanceOut(BaseModel):
-    id: int
-    student_id: UUID
-    course_code: str
-    timestamp: str
-    status: str
-
-    class Config:
-        from_attributes = True

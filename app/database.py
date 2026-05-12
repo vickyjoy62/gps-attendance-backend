@@ -1,23 +1,17 @@
-import os
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, declarative_base
-from dotenv import load_dotenv
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
 
-# Load environment variables from the .env file
-load_dotenv()
+# sqlite:///./attendance.db (ensure 3 slashes)
+SQLALCHEMY_DATABASE_URL = "sqlite:///./attendance.db"
 
-DATABASE_URL = os.getenv("DATABASE_URL")
-
-# Create the SQLAlchemy engine
-engine = create_engine(DATABASE_URL)
-
-# Create a configured "Session" class
+engine = create_engine(
+    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# Create a Base class for our models to inherit from
 Base = declarative_base()
 
-# Dependency function to get the database session for our API routes
 def get_db():
     db = SessionLocal()
     try:
